@@ -1,0 +1,24 @@
+groups:
+  - name: isolane
+    rules:
+      - alert: HighQuarantineRate
+        expr: ude_quarantine_total > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High quarantine rate for {{ $labels.tenant }}"
+
+      - alert: DLQDelivery
+        expr: increase(ude_dlq_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "DLQ delivery for {{ $labels.namespace }}"
+
+      - alert: TokenRevocation
+        expr: increase(isolane_token_revocations_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Token revoked in {{ $labels.tenant_namespace }}"

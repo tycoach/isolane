@@ -1,0 +1,291 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — base services
+# Run: make up
+# ─────────────────────────────────────────────────────────────────
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Zookeeper ──────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka ──────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  # ── Schema Registry ────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── PostgreSQL ─────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mtpif}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mtpif_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-mtpif}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./metadata/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./metadata/rls.sql:/docker-entrypoint-initdb.d/02-rls.sql:ro
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mtpif} -d ${POSTGRES_DB:-mtpif}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ── Redis master ───────────────────────────────────────────────
+  redis-master:
+    image: redis:7.2-alpine
+    hostname: redis-master
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-master-data:/data
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Redis replica ──────────────────────────────────────────────
+  redis-replica:
+    image: redis:7.2-alpine
+    hostname: redis-replica
+    command: redis-server --replicaof redis-master 6379 --appendonly yes
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    volumes:
+      - redis-replica-data:/data
+    logging: *logging
+    restart: unless-stopped
+
+  # ── Redis Sentinel ─────────────────────────────────────────────
+  redis-sentinel:
+    image: redis:7.2-alpine
+    hostname: redis-sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+    ports:
+      - "26379:26379"
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sleep 5
+        MASTER_IP=$$(getent hosts redis-master | awk '{print $$1}')
+        echo "port 26379" > /tmp/sentinel.conf
+        echo "sentinel monitor mtpif-master $${MASTER_IP} 6379 1" >> /tmp/sentinel.conf
+        echo "sentinel resolve-hostnames yes" >> /tmp/sentinel.conf
+        echo "sentinel announce-hostnames yes" >> /tmp/sentinel.conf
+        echo "sentinel down-after-milliseconds mtpif-master 5000" >> /tmp/sentinel.conf
+        echo "sentinel failover-timeout mtpif-master 10000" >> /tmp/sentinel.conf
+        echo "sentinel parallel-syncs mtpif-master 1" >> /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+    logging: *logging
+    restart: unless-stopped
+
+  # ── isolane API ────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    hostname: api
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-mtpif}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mtpif_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-mtpif}
+      REDIS_URL: redis://redis-master:6379
+      KAFKA_BOOTSTRAP: kafka:29092
+      JWT_PRIVATE_KEY_PATH: /run/secrets/private.pem
+      JWT_PUBLIC_KEY_PATH: /run/secrets/public.pem
+      ENV: ${ENV:-development}
+      APP_VERSION: ${APP_VERSION:-dev}
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:8501
+      PROMETHEUS_URL: http://prometheus:9090
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel:26379
+      REDIS_MASTER_NAME: mtpif-master
+      WORKER_HOST: engine-worker
+      WORKER_METRICS_PORT: 9090
+      PROMETHEUS_SCRAPE_DIR: /app/monitoring/prometheus/scrape_configs
+    volumes:
+      - ./keys:/run/secrets:ro
+      - ./monitoring:/app/monitoring
+      - ./provisioner:/app/provisioner
+      - ./metadata:/app/metadata
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Prometheus ─────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Grafana ────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    logging: *logging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Alertmanager ───────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    hostname: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  zookeeper-data:
+  kafka-data:
+  postgres-data:
+  redis-master-data:
+  redis-replica-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  default:
+    name: isolane-net

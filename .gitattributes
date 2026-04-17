@@ -1,0 +1,9 @@
+# Force LF line endings for all files
+* text=auto eol=lf
+
+# Binary files — no line ending conversion
+*.pem binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
