@@ -11,3 +11,4 @@ pyyaml==6.0.1
 redis==5.0.4
 prometheus-client==0.20.0
 python-multipart==0.0.9
+polars==1.39.3

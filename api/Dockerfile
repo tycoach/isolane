@@ -17,6 +17,7 @@ COPY provisioner/ ./provisioner/
 COPY metadata/ ./metadata/
 COPY monitoring/ ./monitoring/
 COPY scripts/ ./scripts/
+COPY engine/ ./engine/
 
 # Create __init__.py files to make packages importable
 RUN touch api/__init__.py \
@@ -26,7 +27,8 @@ RUN touch api/__init__.py \
          api/routers/__init__.py \
          api/schemas/__init__.py \
          provisioner/__init__.py \
-         provisioner/steps/__init__.py
+         provisioner/steps/__init__.py \
+         engine/__init__.py
 
 # Non-root user
 RUN useradd -m -u 1001 isolane && chown -R isolane:isolane /app
