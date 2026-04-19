@@ -1,0 +1,7 @@
+# isolane global engine settings
+worker_count: 8
+log_level: info
+metrics_port: 9090
+metrics_ttl_seconds: 60
+claim_timeout_ms: 45000
+max_claim_attempts: 3

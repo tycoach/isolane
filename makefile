@@ -120,7 +120,7 @@ tenant:
 		exit 1; \
 	fi
 	@echo "Provisioning namespace: $(NS) for team: $(TEAM)"
-	@$(COMPOSE) exec api $(PYTHON) provisioner/provision.py \
+	@$(COMPOSE) exec api $(PYTHON) -m provisioner.provision \
 		--ns $(NS) --team $(TEAM) --mode $(MODE)
 
 ## deprovision: Remove a tenant namespace (destructive — requires confirmation)
@@ -133,7 +133,7 @@ deprovision:
 	@echo ""
 	@read -p "  Type the namespace to confirm: " confirm && \
 		[ "$$confirm" = "$(NS)" ] || (echo "Aborted." && exit 1)
-	@$(COMPOSE) exec api $(PYTHON) provisioner/deprovision.py --ns $(NS)
+	@$(COMPOSE) exec api $(PYTHON) -m provisioner.deprovision --ns $(NS)
 
 # ── Data operations ───────────────────────────────────────────────
 

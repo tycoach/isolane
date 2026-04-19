@@ -1,0 +1,14 @@
+pipeline_id: transactions
+kafka_topic: finance.transactions
+natural_key: transaction_id
+scd_type: 1
+edge_case_mode: fail_fast
+null_threshold: 0.0
+xautoclaim_ms: 30000
+dbt:
+  model: transactions
+fields:
+  transaction_id: { type: string, nullable: false }
+  amount:         { type: float, nullable: false }
+  status:         { type: string, nullable: false }
+  created_at:     { type: string, nullable: false }

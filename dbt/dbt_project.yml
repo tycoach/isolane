@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — single shared dbt project
+# One project serves all tenant namespaces.
+# Tenant isolation is enforced by warehouse RBAC on target schemas.
+# The target_schema var is injected at runtime by the engine:
+#
+#   dbt run --vars '{"target_schema": "analytics_active"}' --target analytics
+#
+# A misconfigured --vars pointing to the wrong schema fails at
+# the GRANT level — the warehouse role cannot write there.
+# ─────────────────────────────────────────────────────────────────
+
+name: isolane
+version: "1.0.0"
+config-version: 2
+
+profile: isolane
+
+# Paths
+model-paths:      ["models"]
+snapshot-paths:   ["snapshots"]
+test-paths:       ["tests"]
+macro-paths:      ["macros"]
+seed-paths:       ["seeds"]
+target-path:      "target"
+clean-targets:    ["target", "dbt_packages"]
+
+# Global model config
+models:
+  isolane:
+    +materialized: incremental
+    +on_schema_change: append_new_columns
+
+# Snapshots use SCD Type 2
+snapshots:
+  isolane:
+    +target_schema: "{{ var('target_schema') | replace('active', 'snapshots') }}"
+    +strategy: timestamp
+    +updated_at: updated_at
+    +invalidate_hard_deletes: true
+
+# Variables — always injected at runtime, never hardcoded here
+vars:
+  target_schema: "undefined_run_with_vars"   # fails fast if not injected

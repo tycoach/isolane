@@ -1,0 +1,8 @@
+redis==5.0.4
+asyncpg==0.29.0
+polars==0.20.31
+pyyaml==6.0.1
+prometheus-client==0.20.0
+psycopg2-binary==2.9.9
+dbt-core==1.8.0
+dbt-postgres==1.8.0

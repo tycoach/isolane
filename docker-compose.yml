@@ -277,6 +277,46 @@ services:
     logging: *logging
     restart: unless-stopped
 
+  # ── Python worker pool ─────────────────────────────────────────
+  engine-worker:
+    build:
+      context: .
+      dockerfile: worker/python/Dockerfile
+    image: isolane-worker
+    hostname: engine-worker
+    ports:
+      - "9091:9090"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-mtpif}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mtpif_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-mtpif}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel:26379
+      REDIS_MASTER_NAME: mtpif-master
+      WORKER_ID: python-worker-1
+      WORKER_METRICS_PORT: 9090
+      METRICS_TTL_SECONDS: 60
+      CLAIM_TIMEOUT_MS: 45000
+      MAX_CLAIM_ATTEMPTS: 3
+      ROCKSDB_PATH: /app/data/rocksdb
+      DBT_PROJECT_DIR: /app/dbt
+      TENANT_ROLE_PASSWORD: ${TENANT_ROLE_PASSWORD:-change_me_dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - worker-rocksdb:/app/data/rocksdb
+    logging: *logging
+    restart: unless-stopped
+
+
 volumes:
   zookeeper-data:
   kafka-data:
@@ -285,6 +325,7 @@ volumes:
   redis-replica-data:
   prometheus-data:
   grafana-data:
+  worker-rocksdb:
 
 networks:
   default:

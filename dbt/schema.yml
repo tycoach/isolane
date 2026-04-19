@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: customers
+    description: "Cleaned customer records. SCD Type 1."
+    config:
+      materialized: incremental
+      unique_key: customer_id
+
+  - name: transactions
+    description: "Cleaned transaction records. SCD Type 1."
+    config:
+      materialized: incremental
+      unique_key: transaction_id
+
+  - name: events
+    description: "Cleaned event records. SCD Type 1."
+    config:
+      materialized: incremental
+      unique_key: event_id

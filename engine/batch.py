@@ -2,6 +2,9 @@
 isolane/engine/batch.py
 
 Main batch processing entry point.
+
+This is what the worker calls for each work item dequeued from
+Redis Streams.
 """
 
 import os
@@ -76,17 +79,24 @@ def load_pipeline_config(namespace: str, pipeline_id: str) -> dict:
 def run_dbt(namespace: str, pipeline_id: str, config: dict) -> bool:
     """
     Trigger dbt run for this pipeline as a subprocess.
+    Connects as the scoped warehouse role for this namespace.
+
+    Returns True on success, False on dbt failure.
     """
     dbt_project_dir = os.environ.get("DBT_PROJECT_DIR", "./dbt")
     target_schema   = f"{namespace}_active"
 
+    dbt_model = (
+        config.get("dbt", {}).get("model", pipeline_id)
+        if config.get("dbt") else pipeline_id
+    )
     cmd = [
         "dbt", "run",
         "--project-dir", dbt_project_dir,
+        "--profiles-dir", dbt_project_dir,
         "--vars", f'{{"target_schema": "{target_schema}"}}',
         "--target", namespace,
-        "--select", config.get("dbt", {}).get("model", pipeline_id)
-        if config.get("dbt") else pipeline_id,
+        "--select", dbt_model,
     ]
 
     result = subprocess.run(
@@ -116,6 +126,8 @@ async def write_to_staging(
 ) -> None:
     """
     Write clean records to the staging schema for dbt to consume.
+    Creates the staging table if it doesn't exist.
+    Uses TRUNCATE + INSERT to ensure idempotency on re-runs.
     """
     if len(df) == 0:
         return

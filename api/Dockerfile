@@ -11,13 +11,16 @@ WORKDIR /app
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the full project so imports like api.db.connection resolve
+# Copy the full project so imports resolve correctly
 COPY api/ ./api/
 COPY provisioner/ ./provisioner/
 COPY metadata/ ./metadata/
 COPY monitoring/ ./monitoring/
 COPY scripts/ ./scripts/
 COPY engine/ ./engine/
+COPY worker/ ./worker/
+COPY dbt/ ./dbt/
+COPY config/ ./config/
 
 # Create __init__.py files to make packages importable
 RUN touch api/__init__.py \
@@ -28,7 +31,9 @@ RUN touch api/__init__.py \
          api/schemas/__init__.py \
          provisioner/__init__.py \
          provisioner/steps/__init__.py \
-         engine/__init__.py
+         engine/__init__.py \
+         worker/__init__.py \
+         worker/python/__init__.py
 
 # Non-root user
 RUN useradd -m -u 1001 isolane && chown -R isolane:isolane /app

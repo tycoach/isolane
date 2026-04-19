@@ -1,0 +1,17 @@
+pipeline_id: customers
+kafka_topic: analytics.customers
+natural_key: customer_id
+scd_type: 2
+edge_case_mode: quarantine
+null_threshold: 0.05
+late_arrival_window: 24h
+duplicate_window: 30m
+xautoclaim_ms: 45000
+dbt:
+  snapshot: customers_snapshot
+  model: customers
+fields:
+  customer_id: { type: string, nullable: false }
+  email:       { type: string, nullable: true }
+  city:        { type: string, nullable: true }
+  created_at:  { type: string, nullable: false }

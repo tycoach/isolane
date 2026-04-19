@@ -1,0 +1,14 @@
+pipeline_id: events
+kafka_topic: growth.events
+natural_key: event_id
+scd_type: 1
+edge_case_mode: quarantine
+null_threshold: 0.05
+xautoclaim_ms: 45000
+dbt:
+  model: events
+fields:
+  event_id:   { type: string, nullable: false }
+  event_type: { type: string, nullable: false }
+  user_id:    { type: string, nullable: true }
+  occurred_at: { type: string, nullable: false }

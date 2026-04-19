@@ -11,4 +11,9 @@ pyyaml==6.0.1
 redis==5.0.4
 prometheus-client==0.20.0
 python-multipart==0.0.9
-polars==1.39.3
+polars==0.20.31
+dbt-core==1.8.0
+dbt-postgres==1.8.0
+pyyaml==6.0.1
+prometheus-client==0.20.0
+psycopg2-binary==2.9.9
