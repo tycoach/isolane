@@ -18,6 +18,8 @@ COPY metadata/ ./metadata/
 COPY monitoring/ ./monitoring/
 COPY scripts/ ./scripts/
 COPY engine/ ./engine/
+COPY tests/ ./tests/
+COPY pytest.ini .
 COPY worker/ ./worker/
 COPY dbt/ ./dbt/
 COPY config/ ./config/

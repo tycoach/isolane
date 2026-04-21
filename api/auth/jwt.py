@@ -134,7 +134,7 @@ def create_token_pair(
         session_id=session_id,
         tenant_namespace=tenant_namespace,
     )
-    refresh_token = str(uuid.uuid4())   # opaque, stored in DB
+    refresh_token = session_id   # opaque token == session_id for simple lookup
 
     return TokenPair(
         access_token=access_token,
@@ -170,9 +170,7 @@ def verify_access_token(token: str) -> TokenPayload:
 
 def decode_token_unverified(token: str) -> dict:
     """
-    Decode without verification — used only during JWKS key rotation
-    grace window to read the kid header and determine which key to use.
-    Never use this for authorization decisions.
+    Decode without verification .
     """
     return pyjwt.decode(
         token,
