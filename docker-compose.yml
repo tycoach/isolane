@@ -317,6 +317,47 @@ services:
     restart: unless-stopped
 
 
+  # ── Go worker (production consumer) ───────────────────────────
+  go-worker:
+    build:
+      context: .
+      dockerfile: worker/go/Dockerfile
+    image: isolane-go-worker
+    hostname: go-worker
+    ports:
+      - "9095:9090"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-mtpif}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-mtpif}
+      REDIS_HOST: redis-master
+      REDIS_PORT: 6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel:26379
+      REDIS_MASTER_NAME: mtpif-master
+      WORKER_ID: go-worker-1
+      WORKER_METRICS_PORT: 9090
+      CLAIM_TIMEOUT_MS: 45000
+      MAX_CLAIM_ATTEMPTS: 3
+      BATCH_COUNT: 10
+      BLOCK_MS: 2000
+      ROCKSDB_PATH: /app/data/rocksdb
+      DBT_PROJECT_DIR: /app/dbt
+      TENANT_ROLE_PASSWORD: ${TENANT_ROLE_PASSWORD:-change_me_dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    volumes:
+      - go-worker-rocksdb:/app/data/rocksdb
+    logging: *logging
+    restart: unless-stopped
+
+
 volumes:
   zookeeper-data:
   kafka-data:
@@ -326,6 +367,7 @@ volumes:
   prometheus-data:
   grafana-data:
   worker-rocksdb:
+  go-worker-rocksdb:
 
 networks:
   default:
