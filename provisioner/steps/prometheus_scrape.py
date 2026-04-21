@@ -2,6 +2,7 @@
 isolane/provisioner/steps/prometheus_scrape.py
 
 Write a per-namespace Prometheus scrape config.
+
 """
 
 import os

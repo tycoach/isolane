@@ -1,24 +1,30 @@
 groups:
-  - name: isolane
+  - name: isolane.engine
     rules:
       - alert: HighQuarantineRate
-        expr: ude_quarantine_total > 100
+        expr: |
+          sum(rate(ude_quarantine_total[5m])) by (tenant, pipeline)
+          /
+          sum(rate(ude_batch_records_processed_total[5m])) by (tenant, pipeline)
+          > 0.10
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "High quarantine rate for {{ $labels.tenant }}"
+          summary: "High quarantine rate for {{ $labels.tenant }}.{{ $labels.pipeline }}"
 
       - alert: DLQDelivery
         expr: increase(ude_dlq_total[5m]) > 0
+        for: 0m
         labels:
           severity: critical
         annotations:
-          summary: "DLQ delivery for {{ $labels.namespace }}"
+          summary: "DLQ delivery in namespace {{ $labels.namespace }}"
 
-      - alert: TokenRevocation
-        expr: increase(isolane_token_revocations_total[5m]) > 0
+      - alert: WorkerDown
+        expr: up{job=~"engine-.*"} == 0
+        for: 2m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: "Token revoked in {{ $labels.tenant_namespace }}"
+          summary: "Worker down: {{ $labels.job }}"

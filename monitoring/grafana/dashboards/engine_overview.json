@@ -1,0 +1,145 @@
+{
+    "__inputs": [],
+    "__requires": [],
+    "annotations": {"list": []},
+    "description": "isolane engine overview — records processed, quarantine rate, batch duration, DLQ activity",
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "palette-classic"}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "id": 1,
+        "options": {"legend": {"calcs": ["sum"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(rate(ude_batch_records_processed_total{tenant=\"$namespace\"}[5m])) by (pipeline)",
+            "legendFormat": "{{pipeline}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Records Processed / sec",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 10}, {"color": "red", "value": 50}]}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "id": 2,
+        "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(increase(ude_quarantine_total{tenant=\"$namespace\"}[1h])) by (pipeline)",
+            "legendFormat": "{{pipeline}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Quarantined Records (last 1h)",
+        "type": "stat"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "palette-classic"}, "unit": "s"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "id": 3,
+        "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "histogram_quantile(0.99, sum(rate(ude_batch_duration_seconds_bucket{tenant=\"$namespace\"}[5m])) by (le, pipeline))",
+            "legendFormat": "p99 {{pipeline}}",
+            "refId": "A"
+          },
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "histogram_quantile(0.50, sum(rate(ude_batch_duration_seconds_bucket{tenant=\"$namespace\"}[5m])) by (le, pipeline))",
+            "legendFormat": "p50 {{pipeline}}",
+            "refId": "B"
+          }
+        ],
+        "title": "Batch Duration (p50 / p99)",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "id": 4,
+        "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["sum"]}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "increase(ude_dlq_total{namespace=\"$namespace\"}[1h])",
+            "legendFormat": "DLQ deliveries",
+            "refId": "A"
+          }
+        ],
+        "title": "DLQ Deliveries (last 1h)",
+        "type": "stat"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "palette-classic"}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+        "id": 5,
+        "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "increase(ude_xautoclaim_cycles_total{namespace=\"$namespace\"}[5m])",
+            "legendFormat": "XAUTOCLAIM cycles",
+            "refId": "A"
+          }
+        ],
+        "title": "XAUTOCLAIM Activity",
+        "type": "timeseries"
+      }
+    ],
+    "refresh": "30s",
+    "schemaVersion": 38,
+    "tags": ["isolane", "engine"],
+    "templating": {
+      "list": [
+        {
+          "current": {},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "definition": "label_values(ude_batch_records_processed_total, tenant)",
+          "hide": 0,
+          "includeAll": false,
+          "name": "namespace",
+          "query": "label_values(ude_batch_records_processed_total, tenant)",
+          "refresh": 2,
+          "sort": 1,
+          "type": "query",
+          "label": "Namespace"
+        }
+      ]
+    },
+    "time": {"from": "now-1h", "to": "now"},
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "isolane — Engine Overview",
+    "uid": "isolane-engine-overview",
+    "version": 1
+  }

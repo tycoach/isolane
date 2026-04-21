@@ -1,17 +1,90 @@
 global:
   resolve_timeout: 5m
 
+# ── Routing ───────────────────────────────────────────────────────
+# Routes alerts by severity and team.
+# tenant= label injected by Prometheus scrape config (honor_labels: false)
+# enables namespace-scoped routing without worker changes.
+
 route:
-  receiver: platform-ops
-  group_by: ['alertname', 'tenant']
+  receiver: platform-ops-default
+  group_by: ['alertname', 'tenant', 'namespace']
   group_wait: 30s
   group_interval: 5m
-  repeat_interval: 12h
+  repeat_interval: 4h
 
+  routes:
+    # Critical alerts — immediate notification
+    - matchers:
+        - severity = critical
+      receiver: platform-ops-critical
+      group_wait: 0s
+      repeat_interval: 1h
+
+    # Security alerts — separate receiver
+    - matchers:
+        - team = security
+      receiver: security-team
+      group_wait: 0s
+      repeat_interval: 30m
+
+    # DLQ alerts — always critical
+    - matchers:
+        - alertname = DLQDelivery
+      receiver: platform-ops-critical
+      group_wait: 0s
+      repeat_interval: 30m
+
+    # Warning alerts — standard cadence
+    - matchers:
+        - severity = warning
+      receiver: platform-ops-default
+      repeat_interval: 4h
+
+# ── Inhibition ────────────────────────────────────────────────────
+# Suppress lower severity alerts when higher severity fires for same target.
+inhibit_rules:
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ['alertname', 'tenant']
+
+  # Suppress quarantine alerts when worker is down
+  - source_matchers:
+      - alertname = WorkerDown
+    target_matchers:
+      - alertname = HighQuarantineRate
+    equal: ['tenant']
+
+# ── Receivers ────────────────────────────────────────────────────
 receivers:
-  - name: platform-ops
-    # Configure your receiver here (Slack, PagerDuty, email, etc.)
-    # Example Slack webhook:
+  - name: platform-ops-default
+    # Configure your notification channels here.
+    # Slack example:
     # slack_configs:
-    #   - api_url: 'https://hooks.slack.com/...'
+    #   - api_url: '{{ env "SLACK_WEBHOOK_URL" }}'
     #     channel: '#isolane-alerts'
+    #     title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] isolane alert'
+    #     text: >-
+    #       {{ range .Alerts }}
+    #       *Alert:* {{ .Annotations.summary }}
+    #       *Namespace:* {{ .Labels.tenant }}
+    #       *Description:* {{ .Annotations.description }}
+    #       {{ end }}
+    webhook_configs: []
+
+  - name: platform-ops-critical
+    # PagerDuty example:
+    # pagerduty_configs:
+    #   - routing_key: '{{ env "PAGERDUTY_KEY" }}'
+    #     description: '{{ .CommonAnnotations.summary }}'
+    webhook_configs: []
+
+  - name: security-team
+    # Separate security channel
+    webhook_configs: []
+
+# ── Templates ─────────────────────────────────────────────────────
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

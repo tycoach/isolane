@@ -1,0 +1,136 @@
+{
+    "__inputs": [],
+    "__requires": [],
+    "annotations": {"list": []},
+    "description": "isolane data quality — quarantine breakdown, schema drift, null rates",
+    "editable": true,
+    "graphTooltip": 1,
+    "id": null,
+    "links": [],
+    "panels": [
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "palette-classic"}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "id": 1,
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(rate(ude_quarantine_total{tenant=\"$namespace\"}[5m])) by (pipeline)",
+            "legendFormat": "{{pipeline}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Quarantine Rate / sec by Pipeline",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "palette-classic"}, "unit": "percentunit"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "id": 2,
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(rate(ude_quarantine_total{tenant=\"$namespace\"}[5m])) by (pipeline) / sum(rate(ude_batch_records_processed_total{tenant=\"$namespace\"}[5m])) by (pipeline)",
+            "legendFormat": "{{pipeline}}",
+            "refId": "A"
+          }
+        ],
+        "title": "Quarantine % of Total Records",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+        "id": 3,
+        "options": {"colorMode": "background", "reduceOptions": {"calcs": ["sum"]}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "increase(ude_dlq_total{namespace=\"$namespace\"}[24h])",
+            "legendFormat": "DLQ (24h)",
+            "refId": "A"
+          }
+        ],
+        "title": "DLQ Messages (24h)",
+        "type": "stat"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 1000}]}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+        "id": 4,
+        "options": {"colorMode": "value", "reduceOptions": {"calcs": ["sum"]}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(increase(ude_quarantine_total{tenant=\"$namespace\"}[24h]))",
+            "legendFormat": "Quarantined (24h)",
+            "refId": "A"
+          }
+        ],
+        "title": "Total Quarantined (24h)",
+        "type": "stat"
+      },
+      {
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "fieldConfig": {
+          "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]}, "unit": "short"},
+          "overrides": []
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+        "id": 5,
+        "options": {"colorMode": "value", "reduceOptions": {"calcs": ["sum"]}},
+        "targets": [
+          {
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "expr": "sum(increase(ude_batch_records_processed_total{tenant=\"$namespace\"}[24h]))",
+            "legendFormat": "Processed (24h)",
+            "refId": "A"
+          }
+        ],
+        "title": "Total Processed (24h)",
+        "type": "stat"
+      }
+    ],
+    "refresh": "30s",
+    "schemaVersion": 38,
+    "tags": ["isolane", "quality"],
+    "templating": {
+      "list": [
+        {
+          "current": {},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "definition": "label_values(ude_batch_records_processed_total, tenant)",
+          "hide": 0,
+          "includeAll": false,
+          "name": "namespace",
+          "query": "label_values(ude_batch_records_processed_total, tenant)",
+          "refresh": 2,
+          "sort": 1,
+          "type": "query",
+          "label": "Namespace"
+        }
+      ]
+    },
+    "time": {"from": "now-24h", "to": "now"},
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "isolane — Data Quality",
+    "uid": "isolane-data-quality",
+    "version": 1
+  }
