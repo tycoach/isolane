@@ -1,0 +1,10 @@
+pipeline_id: orders
+description: "Order records for brand_a"
+natural_key: order_id
+null_threshold: 0.02
+nullable_fields:
+  - promo_code
+  - discount_amount
+dbt:
+  model: orders
+edge_case_mode: quarantine

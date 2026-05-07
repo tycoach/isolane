@@ -1,0 +1,10 @@
+pipeline_id: products
+description: "Product catalogue for brand_a"
+natural_key: product_id
+null_threshold: 0.01
+nullable_fields:
+  - description
+  - image_url
+dbt:
+  model: products
+edge_case_mode: quarantine

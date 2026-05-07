@@ -1,7 +1,3 @@
--- ─────────────────────────────────────────────────────────────────
--- isolane/dbt/models/customers.sql
---
--- Incremental model for customer records.
 {{
     config(
         materialized     = 'incremental',
@@ -16,7 +12,6 @@ SELECT
     customer_id,
     email,
     city,
-    created_at,
     CURRENT_TIMESTAMP AS updated_at,
     TRUE              AS is_current
 FROM {{ staging_schema }}.customers_staged

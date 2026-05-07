@@ -1,0 +1,10 @@
+pipeline_id: customers
+description: "Customer master records for brand_c"
+natural_key: customer_id
+null_threshold: 0.05
+nullable_fields:
+  - phone
+  - loyalty_tier
+dbt:
+  model: customers
+edge_case_mode: quarantine

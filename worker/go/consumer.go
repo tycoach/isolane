@@ -102,16 +102,20 @@ func (c *Consumer) consumeLoop(ctx context.Context) {
 			c.ensureClaimer(ctx, ns)
 		}
 
-		// Build streams map for XREADGROUP
-		streams := make(map[string]string, len(namespaces))
-		for _, ns := range namespaces {
-			streams[fmt.Sprintf("%s.work-queue", ns)] = ">"
-		}
+		// XREADGROUP only supports streams from the SAME consumer group.
+		// Each namespace has its own consumer group, so we must read
+		// one namespace at a time, rotating through them.
+		// Pick the first namespace in the list for this iteration.
+		ns := namespaces[0]
+		namespaces = append(namespaces[1:], ns) // rotate
+
+		streamKey := fmt.Sprintf("%s.work-queue", ns)
+		group := fmt.Sprintf("%s-consumer-group", ns)
 
 		results, err := c.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    fmt.Sprintf("%s-consumer-group", namespaces[0]),
+			Group:    group,
 			Consumer: c.cfg.WorkerID,
-			Streams:  streamsToSlice(streams),
+			Streams:  []string{streamKey, ">"},
 			Count:    int64(c.cfg.BatchCount),
 			Block:    time.Duration(c.cfg.BlockMs) * time.Millisecond,
 		}).Result()
@@ -121,7 +125,8 @@ func (c *Consumer) consumeLoop(ctx context.Context) {
 				continue // timeout — no messages
 			}
 			if isNoGroupError(err) {
-				c.refreshNamespaces(ctx)
+				// Group doesn't exist for this namespace yet
+				time.Sleep(time.Second)
 				continue
 			}
 			if strings.Contains(err.Error(), "context") {
@@ -133,12 +138,12 @@ func (c *Consumer) consumeLoop(ctx context.Context) {
 		}
 
 		for _, stream := range results {
-			ns := strings.Replace(stream.Stream, ".work-queue", "", 1)
+			streamNS := strings.Replace(stream.Stream, ".work-queue", "", 1)
 			for _, msg := range stream.Messages {
 				fields := xMessageToStringMap(msg.Values)
 				item := &WorkItem{
 					StreamID:   msg.ID,
-					Namespace:  ns,
+					Namespace:  streamNS,
 					StreamKey:  stream.Stream,
 					Fields:     fields,
 					ClaimCount: GetClaimCount(fields),
@@ -172,7 +177,7 @@ func (c *Consumer) refreshNamespaces(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	added   := diff(found, c.namespaces)
+	added := diff(found, c.namespaces)
 	removed := diff(c.namespaces, found)
 
 	if len(added) > 0 {
@@ -251,10 +256,10 @@ func discoverNamespaces(ctx context.Context, rdb redis.UniversalClient) []string
 
 func streamsToSlice(streams map[string]string) []string {
 	keys := make([]string, 0, len(streams)*2)
-	ids  := make([]string, 0, len(streams))
+	ids := make([]string, 0, len(streams))
 	for k, v := range streams {
 		keys = append(keys, k)
-		ids  = append(ids, v)
+		ids = append(ids, v)
 	}
 	return append(keys, ids...)
 }

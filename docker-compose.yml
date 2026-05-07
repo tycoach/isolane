@@ -341,7 +341,7 @@ services:
       CLAIM_TIMEOUT_MS: 45000
       MAX_CLAIM_ATTEMPTS: 3
       BATCH_COUNT: 10
-      BLOCK_MS: 2000
+      BLOCK_MS: 500
       ROCKSDB_PATH: /app/data/rocksdb
       DBT_PROJECT_DIR: /app/dbt
       TENANT_ROLE_PASSWORD: ${TENANT_ROLE_PASSWORD:-change_me_dev}
