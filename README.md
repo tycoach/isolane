@@ -1,5 +1,9 @@
 # isolane
 
+[![CI](https://github.com/tycoach/isolane/actions/workflows/ci.yml/badge.svg)](https://github.com/tycoach/isolane/actions/workflows/ci.yml)
+[![Isolation Tests](https://github.com/tycoach/isolane/actions/workflows/isolation-tests.yml/badge.svg)](https://github.com/tycoach/isolane/actions/workflows/isolation-tests.yml)
+[![API Image](https://ghcr.io/v2/tycoach/isolane-api/tags/list)](https://github.com/tycoach/isolane/pkgs/container/isolane-api)
+
 **Multi-tenant pipeline isolation framework.**
 
 isolane lets multiple teams share one data pipeline infrastructure without their data, credentials, or observability bleeding into each other. Every tenant gets scoped Postgres schemas, a scoped Redis Stream, a scoped RocksDB column family, and a scoped Grafana org — all provisioned in a single command.
@@ -69,6 +73,59 @@ dbt run --target {namespace}   Transform staging → active
 | FastAPI | Management API with RS256 JWT auth |
 
 ---
+
+---
+
+## Docker images
+
+isolane publishes three Docker images to GitHub Container Registry on every
+release. You can pull and run them without building from source.
+
+| Image | Description | Pull |
+|---|---|---|
+| `isolane-api` | FastAPI management API | `ghcr.io/tycoach/isolane-api:latest` |
+| `isolane-worker` | Python engine worker | `ghcr.io/tycoach/isolane-worker:latest` |
+| `isolane-go-worker` | Go Redis Streams consumer | `ghcr.io/tycoach/isolane-go-worker:latest` |
+
+### Pull the images
+
+```bash
+docker pull ghcr.io/tycoach/isolane-api:latest
+docker pull ghcr.io/tycoach/isolane-worker:latest
+docker pull ghcr.io/tycoach/isolane-go-worker:latest
+```
+
+### Use a specific version
+
+```bash
+docker pull ghcr.io/tycoach/isolane-api:v1.0.0
+docker pull ghcr.io/tycoach/isolane-worker:v1.0.0
+docker pull ghcr.io/tycoach/isolane-go-worker:v1.0.0
+```
+
+### Run with pre-built images
+
+Update your `docker-compose.yml` to use the published images instead of
+building locally:
+
+```yaml
+services:
+  api:
+    image: ghcr.io/tycoach/isolane-api:latest
+    # remove the build: section
+
+  engine-worker:
+    image: ghcr.io/tycoach/isolane-worker:latest
+    # remove the build: section
+
+  go-worker:
+    image: ghcr.io/tycoach/isolane-go-worker:latest
+    # remove the build: section
+```
+
+This is the recommended approach for production deployments — pull
+versioned images rather than building from source on the server.
+
 
 ## Quick start
 
