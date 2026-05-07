@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — Isolation test suite
+# Spins up the full Docker Compose stack and runs the cross-tenant
+# isolation tests. These are the merge-blocking tests.
+# ─────────────────────────────────────────────────────────────────
+
+name: Isolation Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolation:
+    name: Cross-tenant isolation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      POSTGRES_PASSWORD:    postgres
+      POSTGRES_USER:        mtpif
+      POSTGRES_DB:          mtpif
+      GRAFANA_PASSWORD:     admin123
+      GRAFANA_USER:         admin
+      GRAFANA_URL:          http://grafana:3000
+      TENANT_ROLE_PASSWORD: admin_dev
+      TEST_ADMIN_EMAIL:     ${{ secrets.TEST_ADMIN_EMAIL }}
+      TEST_ADMIN_PASSWORD:  ${{ secrets.TEST_ADMIN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create .env file
+        run: |
+          cat > .env << ENVEOF
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_USER=mtpif
+          POSTGRES_DB=mtpif
+          GRAFANA_PASSWORD=admin123
+          GRAFANA_USER=admin
+          GRAFANA_URL=http://grafana:3000
+          TENANT_ROLE_PASSWORD=admin_dev
+          ENVEOF
+
+      - name: Start the stack
+        run: |
+          docker compose up -d \
+            postgres redis-master redis-replica redis-sentinel \
+            kafka zookeeper schema-registry \
+            api
+          
+          # Wait for services to be healthy
+          echo "Waiting for services..."
+          sleep 30
+
+      - name: Verify stack is healthy
+        run: |
+          docker compose ps
+          curl -sf http://localhost:8000/health/ready || \
+            (docker compose logs api && exit 1)
+
+      - name: Apply RLS policies
+        run: make apply-rls
+
+      - name: Create admin user
+        run: |
+          make create-admin \
+            EMAIL=${{ secrets.TEST_ADMIN_EMAIL }} \
+            PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }}
+
+      - name: Provision analytics tenant
+        run: make tenant NS=analytics TEAM=analytics-team
+
+      - name: Provision finance tenant
+        run: make tenant NS=finance TEAM=finance-team
+
+      - name: Install test dependencies
+        run: |
+          docker compose exec api pip install \
+            pytest pytest-asyncio httpx --quiet
+
+      - name: Run unit tests
+        run: |
+          docker compose exec \
+            -e POSTGRES_USER=${{ env.POSTGRES_USER }} \
+            -e POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ env.POSTGRES_DB }} \
+            api python3 -m pytest tests/unit/ -v --tb=short
+
+      - name: Run isolation tests
+        run: |
+          docker compose exec \
+            -e TEST_ADMIN_EMAIL=${{ secrets.TEST_ADMIN_EMAIL }} \
+            -e TEST_ADMIN_PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }} \
+            -e POSTGRES_USER=${{ env.POSTGRES_USER }} \
+            -e POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ env.POSTGRES_DB }} \
+            api python3 -m pytest tests/isolation/ -v --tb=short
+
+      - name: Start workers and seed data
+        run: |
+          docker compose up -d engine-worker go-worker
+          sleep 10
+          make seed NS=analytics
+          sleep 60
+
+      - name: Verify pipeline ran successfully
+        run: |
+          docker compose exec \
+            -e PGPASSWORD=postgres \
+            postgres psql -U mtpif -d mtpif -c "
+              SELECT status, COUNT(*)
+              FROM pipeline_runs
+              GROUP BY status;
+            "
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs-${{ github.run_id }}
+          path: /tmp/docker-logs/
+          retention-days: 7
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          mkdir -p /tmp/docker-logs
+          docker compose logs api          > /tmp/docker-logs/api.log          2>&1
+          docker compose logs go-worker    > /tmp/docker-logs/go-worker.log    2>&1
+          docker compose logs engine-worker > /tmp/docker-logs/engine-worker.log 2>&1
+          docker compose logs postgres     > /tmp/docker-logs/postgres.log     2>&1
+          docker compose logs prometheus   > /tmp/docker-logs/prometheus.log   2>&1
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes

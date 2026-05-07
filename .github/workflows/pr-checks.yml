@@ -1,0 +1,120 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — PR checks
+# Fast checks that run on every PR — lint, format, size.
+# These complete in under 2 minutes so engineers get fast feedback.
+# ─────────────────────────────────────────────────────────────────
+
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+
+  # ── Commit message check ────────────────────────────────────────
+  commit-message:
+    name: Commit message format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit messages
+        run: |
+          # Enforce conventional commits format
+          # feat: | fix: | docs: | chore: | refactor: | test: | perf:
+          git log origin/main..HEAD --format="%s" | while read msg; do
+            if ! echo "$msg" | grep -qE "^(feat|fix|docs|chore|refactor|test|perf|ci|build)(\(.+\))?: .+"; then
+              echo "ERROR: Commit message does not follow conventional commits:"
+              echo "  '$msg'"
+              echo "Expected format: type(scope): description"
+              echo "  e.g. feat: add finance tenant provisioning"
+              echo "  e.g. fix(engine): handle null natural key in quarantine"
+              exit 1
+            fi
+          done
+          echo "All commit messages are valid"
+
+  # ── Python format check ─────────────────────────────────────────
+  python-format:
+    name: Python format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Check formatting
+        run: ruff format --check api/ engine/ worker/python/ provisioner/ tests/
+
+      - name: Check imports
+        run: ruff check --select I api/ engine/ worker/python/ provisioner/ tests/
+
+  # ── Go format check ─────────────────────────────────────────────
+  go-format:
+    name: Go format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Check formatting
+        working-directory: worker/go
+        run: |
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "Go files need formatting:"
+            gofmt -l .
+            exit 1
+          fi
+          echo "Go formatting is correct"
+
+  # ── YAML validation ─────────────────────────────────────────────
+  yaml-validate:
+    name: YAML validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Validate docker-compose.yml
+        run: yamllint -d relaxed docker-compose.yml
+
+      - name: Validate Prometheus config
+        run: yamllint -d relaxed monitoring/prometheus/prometheus.yml
+
+      - name: Validate alerts
+        run: yamllint -d relaxed monitoring/prometheus/alerts.yml
+
+      - name: Validate Alertmanager config
+        run: yamllint -d relaxed monitoring/alertmanager/alertmanager.yml
+
+  # ── Secrets check ───────────────────────────────────────────────
+  secrets-check:
+    name: No secrets in code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets with trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

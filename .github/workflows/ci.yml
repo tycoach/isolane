@@ -1,0 +1,191 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — CI pipeline
+# Runs on every pull request targeting main.
+# All jobs must pass before merge is allowed.
+# ─────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── Python lint and unit tests ──────────────────────────────────
+  python-unit:
+    name: Python — lint + unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            fastapi uvicorn asyncpg pydantic PyJWT bcrypt cryptography \
+            pyyaml redis prometheus-client psycopg2-binary polars \
+            dbt-core dbt-postgres \
+            pytest pytest-asyncio httpx ruff
+
+      - name: Lint with ruff
+        run: |
+          ruff check api/ engine/ worker/python/ provisioner/ \
+            --ignore E501,E402,F401
+
+      - name: Run unit tests
+        run: |
+          python3 -m pytest tests/unit/ -v --tb=short
+        env:
+          POSTGRES_USER:     mtpif
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB:       mtpif
+
+  # ── Go lint and build ───────────────────────────────────────────
+  go-build:
+    name: Go — lint + build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: worker/go/go.sum
+
+      - name: Download modules
+        working-directory: worker/go
+        run: go mod download
+
+      - name: Vet
+        working-directory: worker/go
+        run: go vet ./...
+
+      - name: Build
+        working-directory: worker/go
+        run: |
+          CGO_ENABLED=0 GOOS=linux go build \
+            -ldflags="-w -s" \
+            -o /tmp/worker \
+            ./cmd/worker
+
+      - name: Check binary exists
+        run: test -f /tmp/worker && echo "Go binary built successfully"
+
+  # ── dbt parse check ─────────────────────────────────────────────
+  dbt-parse:
+    name: dbt — parse check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dbt
+        run: pip install dbt-core dbt-postgres
+
+      - name: Check dbt models parse
+        run: |
+          dbt parse \
+            --project-dir dbt \
+            --profiles-dir dbt \
+            --no-partial-parse
+        env:
+          POSTGRES_HOST:     localhost
+          POSTGRES_PORT:     5432
+          POSTGRES_USER:     mtpif
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB:       mtpif
+
+  # ── Docker build check ──────────────────────────────────────────
+  docker-build:
+    name: Docker — build images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: api/Dockerfile
+          push: false
+          tags: isolane-api:pr-${{ github.event.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Python worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: worker/python/Dockerfile
+          push: false
+          tags: isolane-worker:pr-${{ github.event.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Go worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: worker/go/Dockerfile
+          push: false
+          tags: isolane-go-worker:pr-${{ github.event.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Security scan ───────────────────────────────────────────────
+  security:
+    name: Security — credential scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for hardcoded credentials in test files
+        run: |
+          # Fail if any test file contains hardcoded passwords
+          if grep -rn \
+            --include="test_*.py" \
+            -E "(password|passwd|secret)\s*=\s*['\"][^'\"]{4,}['\"]" \
+            tests/; then
+            echo "ERROR: Hardcoded credentials found in test files"
+            exit 1
+          fi
+          echo "No hardcoded credentials found in test files"
+
+      - name: Check for default credentials in non-example files
+        run: |
+          # Warn if source files have hardcoded defaults beyond known safe ones
+          if grep -rn \
+            --include="*.py" \
+            --exclude-dir=examples \
+            "Isolane2026!" \
+            api/ engine/ worker/ provisioner/; then
+            echo "ERROR: Hardcoded password found in source files"
+            exit 1
+          fi
+          echo "Credential check passed"

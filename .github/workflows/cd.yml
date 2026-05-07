@@ -1,0 +1,214 @@
+# ─────────────────────────────────────────────────────────────────
+# isolane — CD pipeline
+# Runs on merge to main.
+# Builds, tags, and pushes Docker images.
+# Runs the e-commerce example as a smoke test.
+# ─────────────────────────────────────────────────────────────────
+
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # Never cancel a deploy mid-flight
+
+jobs:
+
+  # ── Build and push images ───────────────────────────────────────
+  build-push:
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/isolane-api
+            ghcr.io/${{ github.repository_owner }}/isolane-worker
+            ghcr.io/${{ github.repository_owner }}/isolane-go-worker
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: api/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/isolane-api:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Python worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: worker/python/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/isolane-worker:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Go worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: worker/go/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/isolane-go-worker:${{ steps.meta.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── E-commerce smoke test ───────────────────────────────────────
+  smoke-test:
+    name: E-commerce smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-push
+
+    env:
+      POSTGRES_PASSWORD:    postgres
+      POSTGRES_USER:        mtpif
+      POSTGRES_DB:          mtpif
+      GRAFANA_PASSWORD:     admin123
+      GRAFANA_USER:         admin
+      GRAFANA_URL:          http://grafana:3000
+      TENANT_ROLE_PASSWORD: admin_dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << ENVEOF
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_USER=mtpif
+          POSTGRES_DB=mtpif
+          GRAFANA_PASSWORD=admin123
+          GRAFANA_USER=admin
+          GRAFANA_URL=http://grafana:3000
+          TENANT_ROLE_PASSWORD=admin_dev
+          ENVEOF
+
+      - name: Start core services
+        run: |
+          docker compose up -d \
+            postgres redis-master redis-replica redis-sentinel \
+            api
+          sleep 30
+
+      - name: Health check
+        run: |
+          curl -sf http://localhost:8000/health/ready || \
+            (docker compose logs api && exit 1)
+
+      - name: Apply RLS and create admin
+        run: |
+          make apply-rls
+          make create-admin \
+            EMAIL=${{ secrets.TEST_ADMIN_EMAIL }} \
+            PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }}
+
+      - name: Provision three brands
+        run: |
+          make tenant NS=brand_a TEAM=brand-a-team
+          make tenant NS=brand_b TEAM=brand-b-team
+          make tenant NS=brand_c TEAM=brand-c-team
+
+      - name: Copy dbt models for e-commerce
+        run: |
+          cp examples/ecommerce/dbt/models/orders.sql dbt/models/
+          cp examples/ecommerce/dbt/models/products.sql dbt/models/
+
+      - name: Start workers
+        run: |
+          docker compose up -d engine-worker go-worker
+          sleep 10
+
+      - name: Seed e-commerce data
+        run: |
+          docker cp examples/ecommerce/seed.py isolane-api-1:/app/seed.py
+          docker compose exec \
+            -e POSTGRES_USER=${{ env.POSTGRES_USER }} \
+            -e POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ env.POSTGRES_DB }} \
+            api python3 /app/seed.py --customers 50 --orders 100 --products 20
+
+      - name: Wait for processing
+        run: sleep 120
+
+      - name: Run isolation verifier
+        run: |
+          docker cp examples/ecommerce/verify.py isolane-api-1:/app/verify.py
+          docker compose exec \
+            -e POSTGRES_USER=${{ env.POSTGRES_USER }} \
+            -e POSTGRES_PASSWORD=${{ env.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ env.POSTGRES_DB }} \
+            api python3 /app/verify.py
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
+
+  # ── Release notes ───────────────────────────────────────────────
+  release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: [build-push, smoke-test]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '')
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `isolane ${tag}`,
+              generate_release_notes: true,
+              draft: false,
+              prerelease: tag.includes('-'),
+            })
